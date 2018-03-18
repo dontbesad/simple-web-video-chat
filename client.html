@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>Peer to Peer</title>
+        <link rel="stylesheet" href="https://cdn.bootcss.com/bootstrap/4.0.0/css/bootstrap.min.css">
+        <style media="screen">
+        h3 {
+            color: #789;
+        }
+        body {
+            background: #edd;
+        }
+        .header {
+            text-align: center;
+        }
+        .header h1 {
+            color: #e79;
+        }
+        .header span {
+            color: rgba(255, 40, 30, 0.5);
+        }
+        .left {
+            text-align: center;
+            margin: 10px auto;
+            overflow: hidden;
+        }
+        .left > div {
+            float: left;
+            padding: 10px 15px;
+        }
+
+        .left .content {
+            padding: 5px 8px;
+        }
+        .left .chat {
+            margin: auto;
+        }
+        .right {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 2;
+            text-align: center;
+            border: 1px solid #fff;
+        }
+
+        canvas {
+            display: none;
+        }
+
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>情感对对碰</h1>
+            <span>Tip:房间只能有两个人,都离开房间后,房间将不存在</span><br>
+            <label for="roomName"></label><input id="roomName" class="form-control" type="text" placeholder="房间名:比如gay" style="width:200px;display:inline;">
+            <button id="join" type="button" name="button" class="btn btn-primary">创建or进入</button>
+            <button id="send" type="button" name="button" class="btn btn-primary">开始情感对对碰</button>
+
+        </div>
+
+
+
+        <div class="left">
+
+            <div class="me">
+                <h3>[It's Me]</h3>
+                <video id="localVideo" controls>
+
+                </video>
+                <br>
+                <button type="button" name="button" id="takePhoto" class="btn btn-default">拍照</button>
+                <a download="me_photo.png" id="savePhoto">存照</a>
+                <br>
+                <canvas id="canvas"></canvas>
+                <img id="photo" src="" alt="">
+            </div>
+
+            <div class="chat">
+                <h3>[Chat]</h3>
+                <div class="content" id="content">
+
+                </div>
+                <div class="">
+                    <input type="text" name="" placeholder="请输入你想要输入的话" class="form-control" id="text"><button id="submit" type="button" name="button" class="btn btn-primary">提交</button>
+                </div>
+            </div>
+
+            <div class="you">
+                <h3>[It's You]</h3>
+                <video id="remoteVideo" controls>
+
+                </video>
+            </div>
+        </div>
+
+
+        <div class="right">
+            <h4>房间列表</h3>
+            <table id="roomlist" class="table table-striped table-bordered">
+
+            </table>
+        </div>
+    </body>
+    <script type="text/javascript" src="https://cdn.bootcss.com/jquery/3.3.1/jquery.min.js"></script>
+    <script type="text/javascript" src="adapter.js"></script>
+    <script type="text/javascript" src="socket.io.js"></script>
+    <script type="text/javascript">
+
+    (function() {
+        var localVideo = document.getElementById('localVideo');
+        var getMedia   = document.getElementById('getMedia');
+        var takePhoto  = document.getElementById('takePhoto');
+        var savePhoto  = document.getElementById('savePhoto');
+        var canvas     = document.getElementById('canvas');
+        var localStream = false;
+        var commonHeight = 180;
+        var commonWidth = 0;
+        var roomName = 'test';
+
+        var PeerConnection = window.RTCPeerConnection;
+        var SessionDescription = window.RTCSessionDescription;
+        var pc;
+        var iceServers = { iceServers: [{
+                urls: "stun:120.77.241.49:5678"
+            }, {
+                urls: "turn:120.77.241.49:3478",
+                username: "recoder",
+                credential: "yangye"
+            }] };
+        var constraints = {
+            mandatory: {
+                OfferToReceiveAudio: true, //远程对等端可以尝试发送音频
+                OfferToReceiveVideo: true
+            }
+        };
+
+        var socket = io.connect('https://sunew.xyz:2019');
+
+        socket.on('roomlist', function(msg) {
+            console.log(msg);
+            $('#roomlist').html('<tr><th>房间名</th><th>房间人数</th></tr>');
+            for (var item in msg) {
+                $('#roomlist').append('<tr><td>'+item+'</td><td>'+msg[item]+'</td></tr>');
+            }
+        });
+
+        socket.on('already added room', function() {
+            alert('已经在房间中,请重新进入or继续操作');
+        });
+
+        socket.on('remove', function(msg) {
+            //pc.close();
+            console.log(msg);
+        });
+
+        navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+            .then(function(stream) {
+                localStream = stream;
+                localVideo.srcObject = stream;
+                localVideo.play();
+
+            })
+            .catch(function(error) {
+                console.log(error);
+            });
+
+        localVideo.addEventListener('canplay', function(ev) {
+            //视频可以播放，在流动之前可以得到videoWidth之类的信息
+            if (localStream !== false) {
+                console.log('原来的视频大小: ' + localVideo.videoHeight + ' x ' + localVideo.videoWidth);
+                commonWidth = localVideo.videoWidth / (localVideo.videoHeight / commonHeight);
+                localVideo.setAttribute('width', commonWidth);
+                localVideo.setAttribute('height', commonHeight);
+                canvas.setAttribute('width', commonWidth);
+                canvas.setAttribute('height', commonHeight);
+            }
+        }, false);
+
+        takePhoto.addEventListener('click', function(ev) {
+            console.log('start take photo');
+            if (localStream === false || !commonWidth) {
+                console.log('没有推流信息');
+            } else {
+                var ctx = canvas.getContext('2d');
+                ctx.drawImage(localVideo, 0, 0, commonWidth, commonHeight);
+
+                var photo = document.getElementById('photo');
+                var base64data = canvas.toDataURL('image/png')
+
+                photo.setAttribute('src', base64data);
+                savePhoto.setAttribute('href', base64data);
+            }
+
+            //ev.preventDefault();
+        }, false);
+
+        document.getElementById('join').addEventListener('click', function(evt) {
+            roomName = $('#roomName').val();
+            var regex  = new RegExp(/^[a-zA-Z0-9]*$/);
+            var regarr = regex.exec(roomName);
+
+            if (!roomName || roomName === null || roomName === undefined) {
+                alert('房间名不能为空');
+                return false;
+            } else if (regarr === null) {
+                alert('房间名只能包含数字英文的组合');
+                return false;
+            }
+
+            start();
+        }, false);
+
+        document.getElementById('submit').addEventListener('click', function(evt) {
+            var content = $('#text').val();
+
+            var regex  = new RegExp(/^[a-zA-Z0-9_,\.;]*$/);
+            var regarr = regex.exec(roomName);
+            if (!content || content === null || content === undefined) {
+                alert('输入不能为空');
+                return false;
+            } else if (regarr === null) {
+                alert('输入的内容只能包含:英文数组下划线和标点符号');
+                return false;
+            }
+
+            addContent(0, content);
+            socket.emit('chat', {"type":"chat", "content":content});
+        }, false);
+
+        var addContent = function(who, content) {
+            //Me
+            if (who === 0) {
+                content = '<span style="float:right">'+content+':(Me)</span><br>'
+            } else {
+                content = '<span style="float:left">(You):'+content+'</span><br>';
+            }
+            $('#content').append(content);
+        }
+
+        document.getElementById('send').addEventListener('click', function(evt) {
+
+            pc.createOffer(function(offer) {
+                console.log('create offer success');
+                pc.setLocalDescription(new SessionDescription(offer), function() {
+                    console.log('set local offer success');
+
+                    var msg = {};
+                    msg.type = 'offer';
+                    msg.sdp = offer;
+                    socket.emit('message', msg);
+                }, function(error) {
+                    console.log('set local offer failure');
+                    console.log(error);
+                });
+
+            }, function(error) {
+                console.log('create offer failure');
+                console.log(error);
+            }, constraints);
+        }, false);
+
+
+
+        var start = function() {
+
+            console.log('start');
+
+            socket.emit('create or join', roomName);
+
+            socket.on('message', function(msg) {
+                console.log(msg);
+                switch (msg.type) {
+                    case 'offer':
+                        answer(msg.sdp);
+                        break;
+                    case 'answer':
+                        receiveAnswer(msg.sdp);
+                        break;
+                    case 'candidate':
+                        addcandidate(msg.candidate);
+                        break;
+                    case 'chat':
+                        addContent(1, msg.content);
+                        break;
+                    default:
+                        console.log('other');
+                        break;
+                }
+            });
+            //添加remote candidate
+            var addcandidate = function(candidate) {
+                pc.addIceCandidate(new RTCIceCandidate(candidate), function() {
+                    console.log('add remote icecandidate success');
+                }, function(error) {
+                    console.log('add remote icecandidate error');
+                    console.log(error);
+                });
+            }
+            var answer = function(sdp) {
+                pc.setRemoteDescription(new SessionDescription(sdp), function() {
+                    console.log('local add offer success');
+
+                    pc.createAnswer(function(answer) {
+                        //set local sdp 之后才会发送 candidate
+                        pc.setLocalDescription(new SessionDescription(answer), function() {
+                            console.log('local add answer success');
+
+                            var msg = {};
+                            msg.type = 'answer';
+                            msg.sdp = answer;
+                            socket.emit('message', msg);
+                        }, function(error) {
+                            console.log('local add answer failure');
+                            console.log(error);
+                        });
+                        console.log('create answer success');
+
+
+                    }, function(error) {
+                        console.log('create answer failure');
+                        console.log(error);
+                    });
+                }, function(error) {
+                    console.log('local add offer failure');
+                    console.log(error);
+                }, constraints);
+            }
+            var receiveAnswer = function(sdp) {
+                pc.setRemoteDescription(new SessionDescription(sdp), function() {
+                    console.log('local add answer success');
+                }, function(error) {
+                    console.log('local add answer failure');
+                    console.log(error);
+                });
+            }
+            //send offer
+
+
+            pc = new PeerConnection(iceServers);
+
+            pc.addStream(localStream);
+
+            pc.onaddstream = pc.onaddstream || pc.ontrack;
+            pc.onaddstream = function(obj) {
+                console.log('remote stream added');
+                var remoteVideo = document.getElementById('remoteVideo');
+                remoteVideo.setAttribute('width', commonWidth);
+                remoteVideo.setAttribute('height', commonHeight);
+
+                remoteVideo.srcObject = obj.stream;
+                remoteVideo.play();
+
+            }
+
+            pc.onicecandidate = function(obj) {
+                if (obj.candidate) {
+                    console.log('candidate send');
+
+                    var msg = {};
+                    msg.candidate = obj.candidate;
+                    msg.type      = 'candidate';
+                    socket.emit('message', msg);
+                } else {
+                    console.log('candidate have been sent');
+                }
+            }
+
+            pc.onremovestream = function(ev) {
+                //console.log(ev.stream);
+                console.log('remove stream');
+            }
+
+        }
+
+    })();
+    </script>
+</html>
